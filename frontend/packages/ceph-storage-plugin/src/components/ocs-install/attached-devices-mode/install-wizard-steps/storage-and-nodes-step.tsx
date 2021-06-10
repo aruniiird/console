@@ -42,7 +42,7 @@ import { State, Action } from '../reducer';
 import AttachedDevicesNodeTable from '../sc-node-list';
 import { PVsAvailableCapacity } from '../../pvs-available-capacity';
 import { getSCAvailablePVs } from '../../../../selectors';
-import { nodeResource, pvResource } from '../../../../resources';
+import { pvResource } from '../../../../resources';
 import { GUARDED_FEATURES } from '../../../../features';
 import { NodeKindWithLoading } from '../../../../types';
 
@@ -75,7 +75,6 @@ export const StorageAndNodes: React.FC<StorageAndNodesProps> = ({ state, dispatc
   const isArbiterSupported = useFlag(GUARDED_FEATURES.OCS_ARBITER);
   const isTaintSupported = useFlag(GUARDED_FEATURES.OCS_TAINT_NODES);
   const [pvData, pvLoaded, pvLoadError] = useK8sWatchResource<K8sResourceKind[]>(pvResource);
-  const [nodesData, nodesLoaded, nodesError] = useK8sWatchResource<NodeKind[]>(nodeResource);
 
   const {
     storageClass,
@@ -83,11 +82,14 @@ export const StorageAndNodes: React.FC<StorageAndNodesProps> = ({ state, dispatc
     enableMinimal,
     stretchClusterChecked,
     enableFlexibleScaling,
-    chartNodes = new Set(),
+    lvsIsSelectNodes,
+    lvsSelectNodes,
+    lvsAllNodes,
   } = state;
 
+  const selectedNodes = lvsIsSelectNodes ? lvsSelectNodes : lvsAllNodes;
+
   const memoizedPvData = useDeepCompareMemoize(pvData, true);
-  const memoizedNodesData = useDeepCompareMemoize(nodesData, true);
 
   const pvs: K8sResourceKind[] = React.useMemo(() => getSCAvailablePVs(memoizedPvData, scName), [
     memoizedPvData,
@@ -95,28 +97,21 @@ export const StorageAndNodes: React.FC<StorageAndNodesProps> = ({ state, dispatc
   ]);
   const associatedNodes = getAssociatedNodes(pvs);
   const tableData: NodeKindWithLoading[] =
-    associatedNodes?.length > 0 && pvLoaded && nodesLoaded
-      ? memoizedNodesData
-          ?.filter((node) => chartNodes.has(getName(node)))
+    associatedNodes?.length > 0 && pvLoaded
+      ? selectedNodes
           .map((node) =>
-            associatedNodes?.includes(getName(node)) ||
             associatedNodes?.includes(node.metadata.labels?.['kubernetes.io/hostname'])
               ? node
               : Object.assign({}, node, { loading: true }),
           )
           .sort((a: NodeKindWithLoading, b: NodeKindWithLoading) => {
-            if (a?.loading && b?.loading) return 0;
-            if (a?.loading && !b?.loading) return 1;
-            if (!a?.loading && b?.loading) return -1;
+            if (a?.loading && !b?.loading) return -1;
+            if (!a?.loading && b?.loading) return 1;
             return 0;
           })
       : [];
 
   const memoizedData = useDeepCompareMemoize(tableData, true);
-  React.useEffect(() => {
-    const plainNodeData = memoizedData.map((n) => _.omit(n, ['loading']));
-    dispatch({ type: 'setNodes', value: plainNodeData });
-  }, [memoizedData, dispatch]);
 
   const { cpu, memory, zones } = getNodeInfo(tableData);
   const nodesCount: number = tableData.length;
@@ -152,6 +147,11 @@ export const StorageAndNodes: React.FC<StorageAndNodesProps> = ({ state, dispatc
     }
   }, [dispatch, zonesCount, nodesCount, stretchClusterChecked, isFlexibleScalingSupported]);
 
+  React.useEffect(() => {
+    const plainNodeData = memoizedData.map((n) => _.omit(n, ['loading']));
+    dispatch({ type: 'setNodes', value: plainNodeData });
+  }, [memoizedData, dispatch]);
+
   const handleStorageClass = (sc: StorageClassResourceKind) => {
     dispatch({ type: 'setStorageClass', value: sc });
     dispatch({ type: 'setStorageClassName', name: getName(sc) });
@@ -159,8 +159,8 @@ export const StorageAndNodes: React.FC<StorageAndNodesProps> = ({ state, dispatc
 
   const filterSC = ({ resource }): boolean => {
     const noProvSC = filterSCWithNoProv(resource);
-    if (hasStretchClusterChecked && noProvSC && !nodesError && nodesData.length && nodesLoaded) {
-      return isArbiterSC(getName(resource), pvData, nodesData);
+    if (hasStretchClusterChecked && noProvSC && selectedNodes.length) {
+      return isArbiterSC(getName(resource), pvData, selectedNodes);
     }
     return noProvSC;
   };
@@ -177,7 +177,7 @@ export const StorageAndNodes: React.FC<StorageAndNodesProps> = ({ state, dispatc
           state={state}
           dispatch={dispatch}
           pvData={pvData}
-          nodesData={nodesData}
+          nodesData={selectedNodes}
         />
       )}
       <FormGroup

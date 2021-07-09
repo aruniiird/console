@@ -120,6 +120,8 @@ const BlockPoolTableRow: React.FC<RowFunctionArgs> = ({ obj, index, key, style, 
 
   // Metrics
   const rawCapacity: string = humanizeBinaryBytes(props.poolRawCapacity[name] || 0).string;
+  const compressionSavings: string = humanizeBinaryBytes(props.poolCompressionSavings[name] || 0)
+    .string;
 
   return (
     <TableRow id={obj.metadata.uid} index={index} trKey={key} style={style}>
@@ -179,7 +181,7 @@ const BlockPoolTableRow: React.FC<RowFunctionArgs> = ({ obj, index, key, style, 
         className={blockPoolColumnInfo.compressionsavings.classes}
         columnID={blockPoolColumnInfo.compressionsavings.id}
       >
-        {'-'}
+        {compressionStatus ? compressionSavings : '-'}
       </TableData>
       <TableData className={Kebab.columnClass}>
         <ResourceKebab
@@ -239,6 +241,17 @@ const BlockPoolList: React.FC<BlockPoolListProps> = (props) => {
     rawCapLoadError,
     rawCapLoading,
   );
+  // compression queries
+  const [compressionSavings, compressionLoadError, compressionLoading] = usePrometheusPoll({
+    endpoint: PrometheusEndpoint.QUERY,
+    query: getPoolQuery(poolNames, StorageDashboardQuery.POOL_COMPRESSION_SAVINGS),
+    namespace: CEPH_STORAGE_NAMESPACE,
+  });
+  const poolCompressionSavings: PoolMetrics = getPerPoolMetrics(
+    compressionSavings,
+    compressionLoadError,
+    compressionLoading,
+  );
 
   return (
     <Table
@@ -250,6 +263,7 @@ const BlockPoolList: React.FC<BlockPoolListProps> = (props) => {
         storageClasses,
         cephCluster,
         poolRawCapacity,
+        poolCompressionSavings,
       }}
       virtualize
     />
@@ -284,6 +298,7 @@ type BlockPoolListRowProps = {
   cephCluster: CephClusterKind;
   storageClasses: OcsStorageClassKind[];
   poolRawCapacity: PoolMetrics;
+  poolCompressionSavings: PoolMetrics;
 };
 
 type BlockPoolListProps = {
